@@ -1,0 +1,121 @@
+---
+title: "data_import"
+author: "Arghya Kannadaguli (ak5357)"
+date: "2025-02-18"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(dplyr)
+library(httr)
+library(jsonlite)
+```
+
+
+```{r}
+# Import datasets
+cal_enviro_df = readxl::read_excel("data/calenviroscreen40resultsdatadictionary_f_2021.xlsx") |> 
+  janitor::clean_names() |> 
+  rename(tract = census_tract) #|> 
+  # rename_with(~paste0("CES_", .x)) |> 
+  # rename(tract = CES_tract)
+
+disadv_comm_df = read_csv("data/CA_Disadvantaged_Communities_2022.csv") |> 
+  janitor::clean_names() #|> 
+  # rename_with(~paste0("DAC_", .x)) |> 
+  # rename(tract = DAC_tract)
+
+fertility_df = read_csv("data/mother_ages.csv") |> 
+  janitor::clean_names() |> 
+  mutate(
+    tract = case_when(
+      str_count(name, "Tract") > 0 ~ as.numeric(str_remove(geoid, "14000US0")),
+      TRUE ~ NA)
+  ) |> 
+  relocate(tract, .after = geoid)
+
+# Join datasets together
+df = cal_enviro_df |> 
+  full_join(disadv_comm_df, by = "tract")# |> 
+  #inner_join(fertility_df, by = "tract")
+
+```
+
+```{r}
+cal_enviro_df |> colnames()
+
+cal_enviro_df |> 
+  select(tract, )
+
+# Which columns have unique names
+df |> select(!contains(c(".x", ".y"))) |> colnames()
+
+# Which columns are duplicates
+df[duplicated(as.list(df))] |> colnames() |> 
+  str_remove("DAC_") |> 
+  paste0(collapse = "', '")
+
+
+
+
+
+```
+
+**Columns in DAC that are copies of columns in CES:**
+
+"zip", "population", "ozone", "diesel_pm", "pesticides", "tox_releases", "traffic_pctl", "drinking_water", "cleanups", "groundwater_threats", "haz_waste", "imp_water_bodies", "solid_waste", "asthma", "cardiovascular", "poverty", "county", "approx_loc"
+
+
+
+
+```{r}
+repeat_cols = df |> 
+  select(contains(c(".x", ".y"))) |> 
+  colnames() |> 
+  str_remove_all(".[x|y]") |> 
+  unique()
+
+df |> 
+  select(contains(repeat_cols)) |> view()
+
+df |> 
+  filter(is.na(ozone.x) | is.na(ozone.y)) |> 
+  select(tract, ozone.x, ozone.y) |> 
+  nrow()
+  view()
+
+df |> 
+  filter(is.na(ozone.x)) |> 
+  select(tract, ozone.x, ozone.y) |> 
+  nrow()
+
+df |> 
+  filter(is.na(ozone.y)) |> 
+  select(tract, ozone.x, ozone.y) |> 
+  nrow()
+
+cal_enviro_df |> nrow()
+
+cal_enviro_df |> 
+  filter(tract %in% pull(disadv_comm_df, tract))
+
+
+
+
+df |> select(approx_loc)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
