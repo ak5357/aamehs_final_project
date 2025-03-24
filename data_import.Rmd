@@ -8,6 +8,8 @@ output: html_document
 # Data manipulation
 library(tidyverse)
 library(dplyr)
+library(gtsummary)
+library(gt)
 
 # Modeling
 library(glmnet)
@@ -20,6 +22,7 @@ library(plotmo)
 library(ggrepel)
 ```
 
+## **Import All Data**
 
 ```{r}
 # Cal Enviro Screen 4.0 Dataset
@@ -42,15 +45,17 @@ disadv_comm_df = read_csv("data/CA_Disadvantaged_Communities_2022.csv") |>
   janitor::clean_names()
 
 # Maternal Ages at Birth
-fertility_df = read_csv("data/mother_ages.csv") |> 
-  janitor::clean_names() |> 
-  mutate(
-    tract = case_when(
-      str_count(name, "Tract") > 0 ~ as.numeric(str_remove(geoid, "14000US0")),
-      TRUE ~ NA)
-  ) |>  
-  relocate(tract, .after = geoid)
+# fertility_df = read_csv("data/mother_ages.csv") |> 
+#   janitor::clean_names() |> 
+#   mutate(
+#     tract = case_when(
+#       str_count(name, "Tract") > 0 ~ as.numeric(str_remove(geoid, "14000US0")),
+#       TRUE ~ NA)
+#   ) |>  
+#   relocate(tract, .after = geoid)
 ```
+
+## **Join Cal Data**
 
 ```{r}
 df = cal_enviro_df |> 
@@ -63,20 +68,304 @@ df = cal_enviro_df |>
   )
 ```
 
-
-## **Lasso Regression**
+## **Export Dataframe**
 
 ```{r}
-set.seed(2025)
-
-
-
-
-
+write_csv(df, "data/joined_enviro_ses_20250301.csv")
 ```
 
 
+The following code block is not really related to the AAMEHS project. It's an example for the EHDS class students.
+```{r eval = FALSE}
+# Summary of environmental situation variables
+df |> 
+  # Using tidyverse to select the columns I want to use, I don't think you need to do this
+  select(groundwater_threats, imp_water_bodies, tox_release, cleanup_sites, haz_waste, solid_waste, haz_waste, solid_waste, traffic) |> 
+  # This is the table summary function I like to use, tbl_summary()
+  tbl_summary(
+    # Here's where I tell it how to format the labels for the columns in the output table
+    label = list( 
+      groundwater_threats = "Groundwater Threats",
+      imp_water_bodies = "Impaired Water Bodies",
+      tox_release = "Toxics Release",
+      cleanup_sites = "Cleanup Sites",
+      haz_waste = "Hazardous Waste",
+      solid_waste = "Solid Waste",
+      haz_waste = "Hazardous Waste",
+      solid_waste = "Solid Waste",
+      traffic = "Traffic"
+    ),
+    # This part tells the function how to format the summary statistics for each column
+    statistic = list(all_continuous() ~ "{min} - {max} | Mean: {mean} (SD: {sd})", #continuous variables
+                      all_categorical() ~ "{n} ({p}%)") #categorical variables
+  ) |> 
+  modify_caption("**Summary Statistics for Environmental Data**") #adds a title to the table
+```
 
+## **Summary Tables of Relevant Variables**
+
+```{r}
+# Summary of environmental situation variables
+df |> 
+  select(groundwater_threats, imp_water_bodies, tox_release, cleanup_sites, haz_waste, solid_waste, haz_waste, solid_waste, traffic) |> 
+  tbl_summary(
+    label = list(
+      groundwater_threats = "Groundwater Threats",
+      imp_water_bodies = "Impaired Water Bodies",
+      tox_release = "Toxics Release",
+      cleanup_sites = "Cleanup Sites",
+      haz_waste = "Hazardous Waste",
+      solid_waste = "Solid Waste",
+      haz_waste = "Hazardous Waste",
+      solid_waste = "Solid Waste",
+      traffic = "Traffic"
+    ),
+    statistic = list (all_continuous() ~ "{min} - {max} | Mean: {mean} (SD: {sd})", 
+                      all_categorical() ~ "{n} ({p}%)")
+  ) |> 
+  modify_caption("**Summary Statistics for Environmental Data**") |>
+  as_gt() |>
+  gtsave("images/summary_tbl_env_vars.png")
+  
+
+# Summary of environmental pollutant variables
+df |> 
+  select(drinking_water, pesticides, lead, pm2_5, diesel_pm, ozone, pollution_burden_score) |> 
+  mutate(lead = suppressWarnings(as.numeric(lead, na.rm = TRUE))) |> 
+  tbl_summary(
+    label = list(
+      drinking_water = "Drinking Water Contamination Index",
+      pesticides = "Pesticides",
+      lead = "Lead",
+      pm2_5 = "PM2.5",
+      diesel_pm = "Diesel (PM)",
+      ozone = "Ozone",
+      pollution_burden_score = "Pollution Burden Score"
+    ),
+    statistic = list (all_continuous() ~ "{min} - {max} | Mean: {mean} (SD: {sd})", 
+                      all_categorical() ~ "{n} ({p}%)")
+  ) |> 
+  modify_caption("**Summary Statistics for Pollutant Data**") |> 
+  as_gt() |> 
+  gtsave("images/summary_tbl_env_pollutants.png")
+
+# Summary of population SES characteristics
+df |> 
+  select(education, poverty, unemployment, housing_burden, linguistic_isolation, disadv_designation) |>
+  mutate(across(everything(), as.numeric)) |> 
+  tbl_summary(
+    label = list(
+      education = "Education",
+      poverty = "Poverty",
+      unemployment = "Unemployment",
+      housing_burden = "Housing Burden",
+      linguistic_isolation = "Linguistic Isolation",
+      disadv_designation = "Disadvantaged Census Tract"
+    ),
+    statistic = list (all_continuous() ~ "{min} - {max} | Mean: {mean} (SD: {sd})", 
+                      all_categorical() ~ "{n} ({p}%)")
+  ) |> 
+  modify_caption("**Summary Statistics for SES Data**") |> 
+  as_gt() |> 
+  gtsave("images/summary_tbl_ses_vars.png")
+
+# Summary of population demographics (RACE)
+df |> 
+  select(white_percent, african_american_percent, native_american_percent, asian_american_percent, hispanic_percent, other_multiple_percent) |> 
+  tbl_summary(
+    label = list(
+      white_percent = "White (%)",
+      african_american_percent = " African American (%)",
+      native_american_percent = "Native American (%)",
+      asian_american_percent = "Asian (%)",
+      hispanic_percent = "Hispanic (%)",
+      other_multiple_percen = "Other / Multiple (%)"
+    ),
+    statistic = list (all_continuous() ~ "{min} - {max} | Mean: {mean} (SD: {sd})", 
+                      all_categorical() ~ "{n} ({p}%)")
+  ) |> 
+  modify_caption("**Summary Statistics for Racial Demographics**") |> 
+  as_gt() |> 
+  gtsave("images/summary_tbl_dem_race.png")
+
+# Summary of population demographics (AGE)
+df |> 
+  select(children_10_years_percent, pop_10_64_years_percent, elderly_64_years_percent) |> 
+  tbl_summary(
+    label = list(
+      children_10_years_percent = "Children under 10 years (%)",
+      pop_10_64_years_percent = "Population aged 10-64 years (%)",
+      elderly_64_years_percent = "Elderly aged over 64 years (%)"
+    ),
+    statistic = list (all_continuous() ~ "{min} - {max} | Mean: {mean} (SD: {sd})", 
+                      all_categorical() ~ "{n} ({p}%)")
+  ) |> 
+  modify_caption("**Summary Statistics for Age Demographics**") |> 
+  as_gt() |> 
+  gtsave("images/summary_tbl_dem_age.png")
+
+# Summary of health outcomes
+df |> 
+  select(low_birth_weight, cardiovascular_disease, asthma) |> 
+  mutate(low_birth_weight = suppressWarnings(as.numeric(low_birth_weight, na.rm = TRUE))) |> 
+  tbl_summary(
+    label = list(
+      low_birth_weight = "Low Birth Weight",
+      cardiovascular_disease = "Cardiovascular Disease",
+      asthma = "Asthma"
+    ),
+    statistic = list (all_continuous() ~ "{min} - {max} | Mean: {mean} (SD: {sd})", 
+                      all_categorical() ~ "{n} ({p}%)")
+  ) |> 
+  modify_caption("**Summary Statistics for Health Outcomes**") |> 
+  as_gt() |> 
+  gtsave("images/summary_tbl_health_out.png")
+```
+
+## **Distribution Plots**
+
+```{r}
+dw_plot = df |> 
+  ggplot(aes(x = drinking_water)) + 
+  geom_histogram(col = "black", fill = "lightblue", alpha = 0.5) +
+  labs(
+    title = "Drinking Water",
+    subtitle = "Source: Cal Enviro 4.0 Dataset",
+    x = "Drinking Water Contaminant Index for Selected Contaminants",
+    y = "Count"
+  )
+
+ggsave("images/hist_drinking_water.png", dw_plot)
+```
+
+```{r}
+lbw_plot = df |> 
+  mutate(low_birth_weight = suppressWarnings(as.numeric(low_birth_weight, na.rm = TRUE))) |> 
+  ggplot(aes(x = low_birth_weight)) + 
+  geom_histogram(col = "black", fill = "thistle") +
+  labs(
+    title = "Low Birth Weight",
+    subtitle = "Source: Cal Enviro 4.0 Dataset",
+    x = "Low Birth Weight (% of Total Births)",
+    y = "Count"
+  )
+
+ggsave("images/hist_low_birth_weight.png", lbw_plot)
+```
+
+```{r}
+lbw_dw_df = df |> 
+  drop_na() |> 
+  select(low_birth_weight, drinking_water, drinking_water_pctl) |>
+  mutate(
+    low_birth_weight = suppressWarnings(as.numeric(low_birth_weight, na.rm = TRUE)),
+    high_dw_contamination = as.factor(
+      ifelse(drinking_water_pctl > 50,
+             "Above 50th Percentile",
+             "Below above 50th Percentile")),
+    dw_cat10 = as.factor(case_when(
+      drinking_water_pctl > 90 ~ 10,
+      drinking_water_pctl > 80 ~ 9,
+      drinking_water_pctl > 70 ~ 8,
+      drinking_water_pctl > 60 ~ 7,
+      drinking_water_pctl > 50 ~ 6,
+      drinking_water_pctl > 40 ~ 5,
+      drinking_water_pctl > 30 ~ 4,
+      drinking_water_pctl > 20 ~ 3,
+      drinking_water_pctl > 10 ~ 2,
+      TRUE ~ 1
+    )),
+    dw_cat4 = as.factor(case_when(
+      drinking_water_pctl > 75 ~ 4,
+      drinking_water_pctl > 50 ~ 3,
+      drinking_water_pctl > 25 ~ 2,
+      TRUE ~ 1
+    ))
+  )
+```
+
+Exploratory Visuals
+```{r}
+# Upper and lower 50 percentiles
+lbw_dw_df |> 
+  ggplot(aes(x = low_birth_weight, colour = high_dw_contamination)) + 
+  geom_density() +
+  labs(
+    title = "Low Birth Weight by  Drinking Water Contamination",
+    subtitle = "Source: Cal Enviro 4.0 Dataset",
+    x = "Low Birth Weight (% of Total Births)",
+    y = "Count",
+    col = "Drinking Water\nContamination Index"
+  )
+
+# Quartiles
+lbw_dw_df |> 
+  ggplot(aes(x = low_birth_weight, colour = dw_cat4)) + 
+  geom_density() +
+  labs(
+    title = "Low Birth Weight by  Drinking Water Contamination",
+    subtitle = "Source: Cal Enviro 4.0 Dataset",
+    x = "Low Birth Weight (% of Total Births)",
+    y = "Count",
+    col = "Drinking Water\nContamination Index"
+  )
+```
+
+
+```{r}
+# Highest and lowest quartile
+lbw_highlow_25_plot = lbw_dw_df |> 
+  filter(dw_cat4 %in% c(1,4)) |> 
+  ggplot(aes(x = low_birth_weight, colour = dw_cat4)) + 
+  geom_density() +
+  scale_color_discrete(
+    labels = c(
+      "1" = "Lowest Quartile", 
+      "4" = "Highest Quartile")) +
+  labs(
+    title = "Low Birth Weight by  Drinking Water Contamination",
+    subtitle = "Source: Cal Enviro 4.0 Dataset",
+    x = "Low Birth Weight (% of Total Births)",
+    y = "Count",
+    col = "Drinking Water\nContamination Index"
+  )
+
+ggsave("images/dens_lbw_dw_highlow25.png", lbw_highlow_25_plot)
+
+# Highest and lowest 10%
+lbw_highlow_10_plot = lbw_dw_df |> 
+  filter(dw_cat10 %in% c(1,10)) |>
+  ggplot(aes(x = low_birth_weight, colour = dw_cat10)) + 
+  geom_density() + 
+  scale_color_discrete(
+    labels = c(
+      "1" = "Lowest 10%", 
+      "10" = "Highest 10%")) +
+  labs(
+    title = "Low Birth Weight by  Drinking Water Contamination",
+    subtitle = "Source: Cal Enviro 4.0 Dataset",
+    x = "Low Birth Weight (% of Total Births)",
+    y = "Count",
+    col = "Drinking Water\nContamination Index"
+  )
+
+ggsave("images/dens_lbw_dw_highlow10.png", lbw_highlow_10_plot)
+```
+
+```{r}
+
+lbw_qqplot = df |> 
+  mutate(low_birth_weight = suppressWarnings(as.numeric(low_birth_weight, na.rm = TRUE))) |> 
+  ggplot(aes(sample = low_birth_weight)) +
+  stat_qq() +  # Generate the QQ plot
+  stat_qq_line(col = "red", linewidth = 0.8) +  # Add reference line
+  labs(title = "QQ Plot of Low Birth Weight",
+       x = "Theoretical Quantiles",
+       y = "Sample Quantiles")
+
+ggsave("images/qq_low_birth_weight.png", lbw_qqplot)
+
+```
 
 
 
