@@ -1,0 +1,91 @@
+---
+title: "Regression"
+author: "Arghya Kannadaguli (ak5357)"
+date: "2025-04-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(caret)
+```
+
+## **Data Import**
+
+```{r}
+mat_age = read_csv("data/mother_ages.csv") |> 
+  filter(name != "California") |> 
+  mutate(
+    geoid = as.numeric(str_remove(geoid, "14000US0")),
+    avg_maternal_age = case_when(
+      total_birth > 0 ~ (17*birth_15_19 + 22*birth_20_24 + 27*birth_25_29 + 32*birth_30_34
+                         + 37*birth_35_39 + 42*birth_40_44 + 47*birth_45_50)/total_birth,
+      TRUE ~ NA
+    )
+    ) |>
+  rename(census_tract = geoid) |> 
+  select(census_tract, avg_maternal_age)
+
+enviro = read_csv("data/joined_enviro_ses_20250301.csv") |> 
+  select(-contains(c("pctl", ".y"))) |> 
+  rename(total_pop = total_population.x, county = california_county.x) |> 
+  inner_join(mat_age, by = "census_tract")
+
+write_csv(enviro, "data/joined_data_20250405.csv")
+```
+
+## **Visualization**
+
+```{r}
+hist(mat_age$avg_maternal_age,
+     main = "Histogram of Average Maternal Age by Census Tract",
+     xlab = "Average Maternal Age")
+
+mat_age_plot = enviro |> 
+  ggplot(aes(x = avg_maternal_age)) + 
+  geom_histogram(col = "black", fill = "pink") +
+  labs(
+    title = "Average Maternal Age",
+    #subtitle = "Source: Cal Enviro 4.0 Dataset", # ENTER HERE
+    x = "Estimated Average Maternal Age",
+    y = "Count"
+  )
+
+ggsave("images/hist_maternal_age.png", mat_age_plot)
+```
+
+
+## **OLS Linear Regression**
+
+```{r}
+ols_fit = lm(low_birth_weight ~ drinking_water + diesel_pm + pesticides + poverty + lead + pm2_5 + avg_maternal_age, data = enviro)
+
+summary(ols_fit)
+```
+
+## **Quantile Regression**
+
+```{r}
+
+```
+
+## **Non-linear Exposure Response Curves**
+
+```{r}
+
+```
+
+## **Principal Component Analysis**
+
+```{r}
+
+```
+
+
+
+
+
