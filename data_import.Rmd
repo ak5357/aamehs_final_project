@@ -22,350 +22,250 @@ library(plotmo)
 library(ggrepel)
 ```
 
-## **Import All Data**
+## **Import and Clean All Data**
 
 ```{r}
 # Cal Enviro Screen 4.0 Dataset
-cal_enviro_df = 
+cal.enviro = 
   readxl::read_excel(
     "data/calenviroscreen40resultsdatadictionary_f_2021.xlsx",
-    sheet = 1) |> 
+    sheet = 1, na = c("NA")) |> 
+  janitor::clean_names() |> 
+  select(census_tract, approximate_location, zip, california_county, latitude, longitude, drinking_water, low_birth_weight) |> 
+  rename(geo_id = census_tract, city = approximate_location) |> 
+  arrange(geo_id) |> 
+  mutate(geo_id = as.character(ifelse(geo_id == 6037930401, 6037137000, geo_id)))
+
+# ACS Economic Data
+acs.ses = read_csv("data/ACS_ses_Data.csv",
+    na = c("(X)", "N", "*", "**", "-")) |> 
   janitor::clean_names()
 
-# Demographics (from Cal Enviro 4.0)
-demographics_df = 
-  readxl::read_excel(
-    "data/calenviroscreen40resultsdatadictionary_f_2021.xlsx",
-    sheet = 2,
-    skip = 1) |> 
+# ACS Social Data
+acs.soc = read_csv("data/ACS_social_Data.csv",
+    na = c("(X)", "N", "*", "**", "-")) |> 
   janitor::clean_names()
 
-# Disadvantaged Communities (25% most disadvantaged census tracts)
-disadv_comm_df = read_csv("data/CA_Disadvantaged_Communities_2022.csv") |> 
-  janitor::clean_names()
+# All ACS Data
+acs.raw = full_join(acs.ses, acs.soc, by = "geo_id")
+acs = acs.raw |> 
+  select(
+    "geo_id",
+    "percent_employment_status_females_16_years_and_over_in_labor_force",
+    "percent_employment_status_civilian_labor_force_unemployment_rate",
+    "percent_health_insurance_coverage_civilian_noninstitutionalized_population_with_health_insurance_coverage",
+    "percent_disability_status_of_the_civilian_noninstitutionalized_population_total_civilian_noninstitutionalized_population_with_a_disability",
+    "percent_percentage_of_families_and_people_whose_income_in_the_past_12_months_is_below_the_poverty_level_all_families",
+    "percent_percentage_of_families_and_people_whose_income_in_the_past_12_months_is_below_the_poverty_level_all_people",
+    "percent_residence_1_year_ago_population_1_year_and_over_same_house",
+    starts_with("percent_educational_attainment"),
+    starts_with("percent_marital_status_female"),
+    "percent_place_of_birth_total_population_foreign_born",
+    starts_with("percent_world"),
+    "percent_u_s_citizenship_status_foreign_born_population_not_a_u_s_citizen",
+    starts_with("percent_language") & contains("english_less"),
+    -c("percent_marital_status_females_15_years_and_over",
+       "percent_educational_attainment_population_25_years_and_over",
+       "percent_world_region_of_birth_of_foreign_born_foreign_born_population_excluding_population_born_at_sea")
+    ) |> 
+  rename(
+    # Employment
+    female_employment_rate = percent_employment_status_females_16_years_and_over_in_labor_force,
+    unemployment_rate = percent_employment_status_civilian_labor_force_unemployment_rate,
+    
+    # Health
+    health_insurance_coverage = percent_health_insurance_coverage_civilian_noninstitutionalized_population_with_health_insurance_coverage,
+    disability = percent_disability_status_of_the_civilian_noninstitutionalized_population_total_civilian_noninstitutionalized_population_with_a_disability,
+    
+    # Poverty
+    poverty_rate_families = percent_percentage_of_families_and_people_whose_income_in_the_past_12_months_is_below_the_poverty_level_all_families,
+    poverty_rate_all = percent_percentage_of_families_and_people_whose_income_in_the_past_12_months_is_below_the_poverty_level_all_people,
+    residence_over_1y = percent_residence_1_year_ago_population_1_year_and_over_same_house, # low may indicate high residence turnover
+    
+    # Education
+    edu_less_than_hs = percent_educational_attainment_population_25_years_and_over_less_than_9th_grade,
+    edu_some_hs = percent_educational_attainment_population_25_years_and_over_9th_to_12th_grade_no_diploma,
+    edu_hs = percent_educational_attainment_population_25_years_and_over_high_school_graduate_includes_equivalency,
+    edu_some_college = percent_educational_attainment_population_25_years_and_over_some_college_no_degree,
+    edu_associate = percent_educational_attainment_population_25_years_and_over_associates_degree,
+    edu_bachelors = percent_educational_attainment_population_25_years_and_over_bachelors_degree,
+    edu_grad_prof = percent_educational_attainment_population_25_years_and_over_graduate_or_professional_degree,
+    edu_hs_or_higher = percent_educational_attainment_percent_high_school_graduate_or_higher,
+    edu_bachelors_or_higher = percent_educational_attainment_percent_bachelors_degree_or_higher,
+    
+    # Female Marital Status
+    fms_never_married = percent_marital_status_females_15_years_and_over_never_married,
+    fms_married_separated = percent_marital_status_females_15_years_and_over_now_married_except_separated,
+    fms_separated = percent_marital_status_females_15_years_and_over_separated,
+    fms_widowed = percent_marital_status_females_15_years_and_over_widowed,
+    fms_divorced = percent_marital_status_females_15_years_and_over_divorced,
+    
+    # Foreign Born and Origin
+    foreign_born = percent_place_of_birth_total_population_foreign_born,
+    foreign_born_not_citizen = percent_u_s_citizenship_status_foreign_born_population_not_a_u_s_citizen,
+    foreign_born_europe = percent_world_region_of_birth_of_foreign_born_foreign_born_population_excluding_population_born_at_sea_europe,
+    foreign_born_asia = percent_world_region_of_birth_of_foreign_born_foreign_born_population_excluding_population_born_at_sea_asia,
+    foreign_born_africa = percent_world_region_of_birth_of_foreign_born_foreign_born_population_excluding_population_born_at_sea_africa,
+    foreign_born_oceania = percent_world_region_of_birth_of_foreign_born_foreign_born_population_excluding_population_born_at_sea_oceania,
+    foreign_born_latin_america = percent_world_region_of_birth_of_foreign_born_foreign_born_population_excluding_population_born_at_sea_latin_america,
+    foreign_born_north_america = percent_world_region_of_birth_of_foreign_born_foreign_born_population_excluding_population_born_at_sea_northern_america,
+    
+    # Linguistic Isolation
+    limited_english = percent_language_spoken_at_home_population_5_years_and_over_language_other_than_english_speak_english_less_than_very_well,
+    limited_english_spanish = percent_language_spoken_at_home_population_5_years_and_over_spanish_speak_english_less_than_very_well,
+    limited_english_indo_euro = percent_language_spoken_at_home_population_5_years_and_over_other_indo_european_languages_speak_english_less_than_very_well,
+    limited_english_aapi = percent_language_spoken_at_home_population_5_years_and_over_asian_and_pacific_islander_languages_speak_english_less_than_very_well,
+    limited_english_other = percent_language_spoken_at_home_population_5_years_and_over_other_languages_speak_english_less_than_very_well) |> 
+  arrange(geo_id) |> 
+  mutate(geo_id = str_remove(geo_id, "[01]400000US0")) |> 
+  filter(geo_id != "6")
 
 # Maternal Ages at Birth
-# fertility_df = read_csv("data/mother_ages.csv") |> 
-#   janitor::clean_names() |> 
-#   mutate(
-#     tract = case_when(
-#       str_count(name, "Tract") > 0 ~ as.numeric(str_remove(geoid, "14000US0")),
-#       TRUE ~ NA)
-#   ) |>  
-#   relocate(tract, .after = geoid)
+mat.age = read_csv("data/mother_clean.csv") |> 
+  arrange(geo_id) |> 
+  mutate(
+    geo_id = str_remove(geo_id, "1400000US0"),
+    birthing_rate = ifelse(total > 0, total_birth / total, 0), # percent of people able to give birth who actually gave birth
+    avg_birthing_age = ifelse(total > 0, (17*birth_15_19 + 22*birth_20_24 + 27*birth_25_29 + 32*birth_30_34 + 42*birth_40_44 + 47.5*birth_45_50) / total_birth, NA_real_)
+  ) |> 
+  rename(total_birth_pop = total, total_birth_count = total_birth) |> 
+  select(geo_id, total_birth_pop, total_birth_count, birthing_rate, avg_birthing_age)
 ```
 
-## **Join Cal Data**
+## **Join All Data**
 
 ```{r}
-df = cal_enviro_df |> 
-  left_join(
-    select(demographics_df, -contains("ces_4_0")),
-    by = "census_tract"
-  ) |> 
+dat.raw = cal.enviro |> 
+  full_join(mat.age, by = "geo_id") |> 
+  full_join(acs, by = "geo_id")
+```
+
+## **Explore Missing Values**
+
+```{r}
+dat.test = dat.raw |> 
   mutate(
-    disadv_designation = ifelse(census_tract %in% pull(disadv_comm_df, tract), 1, 0)
+    birth_data = factor(case_when(
+      total_birth_pop == 0 ~ "Birth Pop = 0, Birth Count = 0",
+      total_birth_count == 0 ~ "Birth Pop > 0, Birth Count = 0",
+      total_birth_pop > 0 & total_birth_count > 0 ~ "Birth Pop > 0, Birth Count > 0"
+    )),
+    missing = factor(case_when(
+      is.na(city) ~ "Missing all CalEnviro\n& ACS data",
+      is.na(low_birth_weight) & is.na(drinking_water) ~ "Both",
+      is.na(low_birth_weight) ~ "LBW",
+      is.na(drinking_water) ~ "DWC",
+      TRUE ~ "None"), levels = c("Both", "DWC", "LBW", "None", "Missing all CalEnviro\n& ACS data")),
+    exclusion_criteria = case_when(
+      total_birth_pop == 0 & is.na(city) ~ "(X) Birth Pop 0 & missing Cal/ACS",
+      total_birth_pop == 0 & missing == "Both" ~ "(X) Birth Pop = 0 & missing DWC/LBW",
+      total_birth_pop == 0 & missing == "LBW" ~ "(X) Birth Pop = 0 & missing only LBW",
+      total_birth_pop == 0 ~ "(?) Birth Pop = 0 but & no missing data",
+      total_birth_pop > 0 & total_birth_count == 0 & missing != "None" ~ "(?) Birth Pop > 0, Count = 0 & missing data",
+      total_birth_pop > 0 & total_birth_count == 0 & missing == "None" ~ "(?) Birth Pop> 0, Count = 0 & no missing data",
+      total_birth_count > 0 & missing != "None" ~ "(?) Birth Count > 0 & missing data",
+      total_birth_count > 0 & missing == "None" ~ "(I) Birth Count > 0 & no missing data",
+      TRUE ~ paste(missing, birth_data)),
+    exclude = case_when(
+      total_birth_pop == 0 & is.na(city) ~ "Exclude",
+      total_birth_pop == 0 & missing == "Both" ~ "Exclude",
+      total_birth_pop == 0 & missing == "LBW" ~ "Exclude",
+      total_birth_pop == 0 ~ "?",
+      total_birth_pop > 0 & total_birth_count == 0 ~ "?",
+      total_birth_count > 0 & missing != "None" ~ "?",
+      total_birth_count > 0 & missing == "None" ~ "Include",
+      TRUE ~ "?"))
+
+dat.test |> 
+  filter(total_birth_pop > 0 & total_birth_count > 0 & missing == "None") |> 
+  nrow()
+
+dat.test |> 
+  count(exclude, exclusion_criteria)
+
+library(maps)
+states.map = map_data("state")
+ca.map = states.map |> filter(region == "california")
+
+# Map by exposure / outcome missingness
+dat.test |> 
+  filter(missing != "Missing all CalEnviro\n& ACS data") |> 
+  ggplot(aes(x = longitude, y = latitude, color = missing)) +
+  geom_polygon(data = ca.map, aes(x = long, y = lat, group = group), 
+               fill = "grey95", color = "grey", alpha = 0.6) +
+  geom_point(alpha = 0.7) +
+  scale_color_brewer(palette = "Spectral") +
+  facet_wrap(~ missing) + 
+  theme_classic() +
+  labs(
+    title = "Spatial distribution of missing exposure and outcome data",
+    x = "", y = "",
+    subtitle = "Not depicting the 22 tracts missing all CalEnviro and ACS data"
   )
+
+# Map by birth data genre
+dat.test |> 
+  ggplot(aes(x = longitude, y = latitude, color = birth_data)) +
+  geom_polygon(data = ca.map, aes(x = long, y = lat, group = group), 
+               fill = "grey95", color = "grey", alpha = 0.6) +
+  geom_point(alpha = 0.7) +
+  scale_color_brewer(palette = "Paired") +
+  facet_wrap(~ birth_data, nrow = 2) + 
+  theme_classic() +
+  labs(
+    title = "Spatial distribution of birthing population and births",
+    x = "", y = "",
+    subtitle = "2011-2015 Maternal Data"
+  )
+
+# Barplot of missingness types by birth data genre
+dat.test |> 
+  count(birth_data, missing) |> 
+  mutate(pct_of_tracts = 100*(n/nrow(dat.raw))) |> 
+  ggplot(aes(x = missing, y = n, fill = missing)) +
+  geom_bar(stat = "identity") +
+  scale_fill_brewer(palette = "Spectral") + 
+  facet_wrap(~ birth_data, scale = "free_y") +
+  geom_text(aes(label = n), size = 3, vjust = -0.5) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+  
+# Proposal for exclusion criteria
+dat.test |> 
+  ggplot(aes(x = longitude, y = latitude, color = exclude)) +
+  geom_polygon(data = ca.map, aes(x = long, y = lat, group = group), 
+               fill = "grey95", color = "grey", alpha = 0.6) +
+  scale_color_manual(values = c("?" = "yellow", "Exclude" = "darkred", "Include" = "darkgreen")) +
+  geom_point(alpha = 0.7) +
+  facet_wrap(~ exclusion_criteria, nrow = 2) + 
+  theme_classic() +
+  labs(
+    title = "Exclusion Criteria Proposal",
+    x = "", y = "",
+    subtitle = "2011-2015 Maternal Data"
+  )
+
+```
+
+```{r}
+dat = dat.raw |> 
+  filter(!is.na(drinking_water) & !is.na(low_birth_weight) & total_birth_pop > 0 & total_birth_count > 0)
+
+# Check for Null Values across columns
+dat |>
+  filter(!is.na(drinking_water) & !is.na(low_birth_weight) & total_birth_pop > 0 & total_birth_count > 0) |>
+  lapply(is.na) |>
+  lapply(sum) |>
+  as_tibble() |>
+  pivot_longer(everything(), names_to = "col", values_to = "na_count") |>
+  filter(na_count > 0)
+
+dat |> glimpse()
 ```
 
 ## **Export Dataframe**
 
 ```{r}
-write_csv(df, "data/joined_enviro_ses_20250301.csv")
+write_csv(dat, "data/AAMEHS Final Dataset.csv")
 ```
-
-
-The following code block is not really related to the AAMEHS project. It's an example for the EHDS class students.
-```{r eval = FALSE}
-# Summary of environmental situation variables
-df |> 
-  # Using tidyverse to select the columns I want to use, I don't think you need to do this
-  select(groundwater_threats, imp_water_bodies, tox_release, cleanup_sites, haz_waste, solid_waste, haz_waste, solid_waste, traffic) |> 
-  # This is the table summary function I like to use, tbl_summary()
-  tbl_summary(
-    # Here's where I tell it how to format the labels for the columns in the output table
-    label = list( 
-      groundwater_threats = "Groundwater Threats",
-      imp_water_bodies = "Impaired Water Bodies",
-      tox_release = "Toxics Release",
-      cleanup_sites = "Cleanup Sites",
-      haz_waste = "Hazardous Waste",
-      solid_waste = "Solid Waste",
-      haz_waste = "Hazardous Waste",
-      solid_waste = "Solid Waste",
-      traffic = "Traffic"
-    ),
-    # This part tells the function how to format the summary statistics for each column
-    statistic = list(all_continuous() ~ "{min} - {max} | Mean: {mean} (SD: {sd})", #continuous variables
-                      all_categorical() ~ "{n} ({p}%)") #categorical variables
-  ) |> 
-  modify_caption("**Summary Statistics for Environmental Data**") #adds a title to the table
-```
-
-## **Summary Tables of Relevant Variables**
-
-```{r}
-# Summary of environmental situation variables
-df |> 
-  select(groundwater_threats, imp_water_bodies, tox_release, cleanup_sites, haz_waste, solid_waste, haz_waste, solid_waste, traffic) |> 
-  tbl_summary(
-    label = list(
-      groundwater_threats = "Groundwater Threats",
-      imp_water_bodies = "Impaired Water Bodies",
-      tox_release = "Toxics Release",
-      cleanup_sites = "Cleanup Sites",
-      haz_waste = "Hazardous Waste",
-      solid_waste = "Solid Waste",
-      haz_waste = "Hazardous Waste",
-      solid_waste = "Solid Waste",
-      traffic = "Traffic"
-    ),
-    statistic = list (all_continuous() ~ "{min} - {max} | Mean: {mean} (SD: {sd})", 
-                      all_categorical() ~ "{n} ({p}%)")
-  ) |> 
-  modify_caption("**Summary Statistics for Environmental Data**") |>
-  as_gt() |>
-  gtsave("images/summary_tbl_env_vars.png")
-  
-
-# Summary of environmental pollutant variables
-df |> 
-  select(drinking_water, pesticides, lead, pm2_5, diesel_pm, ozone, pollution_burden_score) |> 
-  mutate(lead = suppressWarnings(as.numeric(lead, na.rm = TRUE))) |> 
-  tbl_summary(
-    label = list(
-      drinking_water = "Drinking Water Contamination Index",
-      pesticides = "Pesticides",
-      lead = "Lead",
-      pm2_5 = "PM2.5",
-      diesel_pm = "Diesel (PM)",
-      ozone = "Ozone",
-      pollution_burden_score = "Pollution Burden Score"
-    ),
-    statistic = list (all_continuous() ~ "{min} - {max} | Mean: {mean} (SD: {sd})", 
-                      all_categorical() ~ "{n} ({p}%)")
-  ) |> 
-  modify_caption("**Summary Statistics for Pollutant Data**") |> 
-  as_gt() |> 
-  gtsave("images/summary_tbl_env_pollutants.png")
-
-# Summary of population SES characteristics
-df |> 
-  select(education, poverty, unemployment, housing_burden, linguistic_isolation, disadv_designation) |>
-  mutate(across(everything(), as.numeric)) |> 
-  tbl_summary(
-    label = list(
-      education = "Education",
-      poverty = "Poverty",
-      unemployment = "Unemployment",
-      housing_burden = "Housing Burden",
-      linguistic_isolation = "Linguistic Isolation",
-      disadv_designation = "Disadvantaged Census Tract"
-    ),
-    statistic = list (all_continuous() ~ "{min} - {max} | Mean: {mean} (SD: {sd})", 
-                      all_categorical() ~ "{n} ({p}%)")
-  ) |> 
-  modify_caption("**Summary Statistics for SES Data**") |> 
-  as_gt() |> 
-  gtsave("images/summary_tbl_ses_vars.png")
-
-# Summary of population demographics (RACE)
-df |> 
-  select(white_percent, african_american_percent, native_american_percent, asian_american_percent, hispanic_percent, other_multiple_percent) |> 
-  tbl_summary(
-    label = list(
-      white_percent = "White (%)",
-      african_american_percent = " African American (%)",
-      native_american_percent = "Native American (%)",
-      asian_american_percent = "Asian (%)",
-      hispanic_percent = "Hispanic (%)",
-      other_multiple_percen = "Other / Multiple (%)"
-    ),
-    statistic = list (all_continuous() ~ "{min} - {max} | Mean: {mean} (SD: {sd})", 
-                      all_categorical() ~ "{n} ({p}%)")
-  ) |> 
-  modify_caption("**Summary Statistics for Racial Demographics**") |> 
-  as_gt() |> 
-  gtsave("images/summary_tbl_dem_race.png")
-
-# Summary of population demographics (AGE)
-df |> 
-  select(children_10_years_percent, pop_10_64_years_percent, elderly_64_years_percent) |> 
-  tbl_summary(
-    label = list(
-      children_10_years_percent = "Children under 10 years (%)",
-      pop_10_64_years_percent = "Population aged 10-64 years (%)",
-      elderly_64_years_percent = "Elderly aged over 64 years (%)"
-    ),
-    statistic = list (all_continuous() ~ "{min} - {max} | Mean: {mean} (SD: {sd})", 
-                      all_categorical() ~ "{n} ({p}%)")
-  ) |> 
-  modify_caption("**Summary Statistics for Age Demographics**") |> 
-  as_gt() |> 
-  gtsave("images/summary_tbl_dem_age.png")
-
-# Summary of health outcomes
-df |> 
-  select(low_birth_weight, cardiovascular_disease, asthma) |> 
-  mutate(low_birth_weight = suppressWarnings(as.numeric(low_birth_weight, na.rm = TRUE))) |> 
-  tbl_summary(
-    label = list(
-      low_birth_weight = "Low Birth Weight",
-      cardiovascular_disease = "Cardiovascular Disease",
-      asthma = "Asthma"
-    ),
-    statistic = list (all_continuous() ~ "{min} - {max} | Mean: {mean} (SD: {sd})", 
-                      all_categorical() ~ "{n} ({p}%)")
-  ) |> 
-  modify_caption("**Summary Statistics for Health Outcomes**") |> 
-  as_gt() |> 
-  gtsave("images/summary_tbl_health_out.png")
-```
-
-## **Distribution Plots**
-
-```{r}
-dw_plot = df |> 
-  ggplot(aes(x = drinking_water)) + 
-  geom_histogram(col = "black", fill = "lightblue", alpha = 0.5) +
-  labs(
-    title = "Drinking Water",
-    subtitle = "Source: Cal Enviro 4.0 Dataset",
-    x = "Drinking Water Contaminant Index for Selected Contaminants",
-    y = "Count"
-  )
-
-ggsave("images/hist_drinking_water.png", dw_plot)
-```
-
-```{r}
-lbw_plot = df |> 
-  mutate(low_birth_weight = suppressWarnings(as.numeric(low_birth_weight, na.rm = TRUE))) |> 
-  ggplot(aes(x = low_birth_weight)) + 
-  geom_histogram(col = "black", fill = "thistle") +
-  labs(
-    title = "Low Birth Weight",
-    subtitle = "Source: Cal Enviro 4.0 Dataset",
-    x = "Low Birth Weight (% of Total Births)",
-    y = "Count"
-  )
-
-ggsave("images/hist_low_birth_weight.png", lbw_plot)
-```
-
-```{r}
-lbw_dw_df = df |> 
-  drop_na() |> 
-  select(low_birth_weight, drinking_water, drinking_water_pctl) |>
-  mutate(
-    low_birth_weight = suppressWarnings(as.numeric(low_birth_weight, na.rm = TRUE)),
-    high_dw_contamination = as.factor(
-      ifelse(drinking_water_pctl > 50,
-             "Above 50th Percentile",
-             "Below above 50th Percentile")),
-    dw_cat10 = as.factor(case_when(
-      drinking_water_pctl > 90 ~ 10,
-      drinking_water_pctl > 80 ~ 9,
-      drinking_water_pctl > 70 ~ 8,
-      drinking_water_pctl > 60 ~ 7,
-      drinking_water_pctl > 50 ~ 6,
-      drinking_water_pctl > 40 ~ 5,
-      drinking_water_pctl > 30 ~ 4,
-      drinking_water_pctl > 20 ~ 3,
-      drinking_water_pctl > 10 ~ 2,
-      TRUE ~ 1
-    )),
-    dw_cat4 = as.factor(case_when(
-      drinking_water_pctl > 75 ~ 4,
-      drinking_water_pctl > 50 ~ 3,
-      drinking_water_pctl > 25 ~ 2,
-      TRUE ~ 1
-    ))
-  )
-```
-
-Exploratory Visuals
-```{r}
-# Upper and lower 50 percentiles
-lbw_dw_df |> 
-  ggplot(aes(x = low_birth_weight, colour = high_dw_contamination)) + 
-  geom_density() +
-  labs(
-    title = "Low Birth Weight by  Drinking Water Contamination",
-    subtitle = "Source: Cal Enviro 4.0 Dataset",
-    x = "Low Birth Weight (% of Total Births)",
-    y = "Count",
-    col = "Drinking Water\nContamination Index"
-  )
-
-# Quartiles
-lbw_dw_df |> 
-  ggplot(aes(x = low_birth_weight, colour = dw_cat4)) + 
-  geom_density() +
-  labs(
-    title = "Low Birth Weight by  Drinking Water Contamination",
-    subtitle = "Source: Cal Enviro 4.0 Dataset",
-    x = "Low Birth Weight (% of Total Births)",
-    y = "Count",
-    col = "Drinking Water\nContamination Index"
-  )
-```
-
-
-```{r}
-# Highest and lowest quartile
-lbw_highlow_25_plot = lbw_dw_df |> 
-  filter(dw_cat4 %in% c(1,4)) |> 
-  ggplot(aes(x = low_birth_weight, colour = dw_cat4)) + 
-  geom_density() +
-  scale_color_discrete(
-    labels = c(
-      "1" = "Lowest Quartile", 
-      "4" = "Highest Quartile")) +
-  labs(
-    title = "Low Birth Weight by  Drinking Water Contamination",
-    subtitle = "Source: Cal Enviro 4.0 Dataset",
-    x = "Low Birth Weight (% of Total Births)",
-    y = "Count",
-    col = "Drinking Water\nContamination Index"
-  )
-
-ggsave("images/dens_lbw_dw_highlow25.png", lbw_highlow_25_plot)
-
-# Highest and lowest 10%
-lbw_highlow_10_plot = lbw_dw_df |> 
-  filter(dw_cat10 %in% c(1,10)) |>
-  ggplot(aes(x = low_birth_weight, colour = dw_cat10)) + 
-  geom_density() + 
-  scale_color_discrete(
-    labels = c(
-      "1" = "Lowest 10%", 
-      "10" = "Highest 10%")) +
-  labs(
-    title = "Low Birth Weight by  Drinking Water Contamination",
-    subtitle = "Source: Cal Enviro 4.0 Dataset",
-    x = "Low Birth Weight (% of Total Births)",
-    y = "Count",
-    col = "Drinking Water\nContamination Index"
-  )
-
-ggsave("images/dens_lbw_dw_highlow10.png", lbw_highlow_10_plot)
-```
-
-```{r}
-
-lbw_qqplot = df |> 
-  mutate(low_birth_weight = suppressWarnings(as.numeric(low_birth_weight, na.rm = TRUE))) |> 
-  ggplot(aes(sample = low_birth_weight)) +
-  stat_qq() +  # Generate the QQ plot
-  stat_qq_line(col = "red", linewidth = 0.8) +  # Add reference line
-  labs(title = "QQ Plot of Low Birth Weight",
-       x = "Theoretical Quantiles",
-       y = "Sample Quantiles")
-
-ggsave("images/qq_low_birth_weight.png", lbw_qqplot)
-
-```
-
 
 
