@@ -1,0 +1,284 @@
+---
+title: "FA Study"
+author: "Arghya Kannadaguli (ak5357)"
+date: "2025-05-14"
+output: html_document
+---
+
+```{r}
+# Data manipulation
+library(tidyverse)
+library(dplyr)
+library(gtsummary)
+library(gt)
+
+# Modeling
+library(glmnet)
+library(caret)
+library(tidymodels)
+
+# Plotting
+library(ggplot2)
+library(plotmo)
+library(ggrepel)
+
+# Colors
+library(RColorBrewer)
+library(pals)
+
+# Statistical Analysis
+library(psych)
+library(factoextra)
+library(mice)
+library(VIM)
+
+theme_set(
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic"),
+        plot.caption = element_text(hjust = 0.5))) |> 
+  suppressWarnings()
+```
+
+## **Import and Clean All Data**
+
+```{r}
+# Cal Enviro Screen 4.0 Dataset
+cal.enviro = 
+  readxl::read_excel(
+    "data/calenviroscreen40resultsdatadictionary_f_2021.xlsx",
+    sheet = 1, na = c("NA")) |> 
+  janitor::clean_names() |> 
+  select(census_tract, approximate_location, zip, california_county, latitude, longitude, low_birth_weight) |> 
+  rename(geo_id = census_tract, city = approximate_location) |> 
+  arrange(geo_id) |> 
+  mutate(geo_id = as.character(ifelse(geo_id == 6037930401, 6037137000, geo_id)))
+
+# ACS Economic Data
+acs.ses = read_csv("data/ACS_ses_Data.csv",
+    na = c("(X)", "N", "*", "**", "-")) |> 
+  janitor::clean_names()
+
+# ACS Social Data
+acs.soc = read_csv("data/ACS_social_Data.csv",
+    na = c("(X)", "N", "*", "**", "-")) |> 
+  janitor::clean_names()
+
+# All ACS Data
+acs.raw = full_join(acs.ses, acs.soc, by = "geo_id")
+acs = acs.raw |> 
+  select(
+    "geo_id",
+    "percent_employment_status_females_16_years_and_over_in_labor_force",
+    "percent_employment_status_civilian_labor_force_unemployment_rate",
+    "percent_health_insurance_coverage_civilian_noninstitutionalized_population_with_health_insurance_coverage",
+    "percent_disability_status_of_the_civilian_noninstitutionalized_population_total_civilian_noninstitutionalized_population_with_a_disability",
+    "estimate_income_and_benefits_in_2015_inflation_adjusted_dollars_total_households_median_household_income_dollars",
+    "percent_percentage_of_families_and_people_whose_income_in_the_past_12_months_is_below_the_poverty_level_all_families",
+    "percent_percentage_of_families_and_people_whose_income_in_the_past_12_months_is_below_the_poverty_level_all_people",
+    "percent_residence_1_year_ago_population_1_year_and_over_same_house",
+    starts_with("percent_educational_attainment"),
+    starts_with("percent_marital_status_female"),
+    "percent_place_of_birth_total_population_foreign_born",
+    starts_with("percent_world"),
+    "percent_u_s_citizenship_status_foreign_born_population_not_a_u_s_citizen",
+    starts_with("percent_language") & contains("english_less"),
+    -c("percent_marital_status_females_15_years_and_over",
+       "percent_educational_attainment_population_25_years_and_over",
+       "percent_world_region_of_birth_of_foreign_born_foreign_born_population_excluding_population_born_at_sea")
+    ) |> 
+  rename(
+    # Employment
+    female_employment_rate = percent_employment_status_females_16_years_and_over_in_labor_force,
+    unemployment_rate = percent_employment_status_civilian_labor_force_unemployment_rate,
+    
+    # Health
+    health_insurance_coverage = percent_health_insurance_coverage_civilian_noninstitutionalized_population_with_health_insurance_coverage,
+    disability = percent_disability_status_of_the_civilian_noninstitutionalized_population_total_civilian_noninstitutionalized_population_with_a_disability,
+    
+    # Poverty
+    median_income = estimate_income_and_benefits_in_2015_inflation_adjusted_dollars_total_households_median_household_income_dollars,
+    poverty_rate_families = percent_percentage_of_families_and_people_whose_income_in_the_past_12_months_is_below_the_poverty_level_all_families,
+    poverty_rate_all = percent_percentage_of_families_and_people_whose_income_in_the_past_12_months_is_below_the_poverty_level_all_people,
+    residence_over_1y = percent_residence_1_year_ago_population_1_year_and_over_same_house, # low may indicate high residence turnover
+    
+    # Education
+    edu_less_than_hs = percent_educational_attainment_population_25_years_and_over_less_than_9th_grade,
+    edu_some_hs = percent_educational_attainment_population_25_years_and_over_9th_to_12th_grade_no_diploma,
+    edu_hs = percent_educational_attainment_population_25_years_and_over_high_school_graduate_includes_equivalency,
+    edu_some_college = percent_educational_attainment_population_25_years_and_over_some_college_no_degree,
+    edu_associate = percent_educational_attainment_population_25_years_and_over_associates_degree,
+    edu_bachelors = percent_educational_attainment_population_25_years_and_over_bachelors_degree,
+    edu_grad_prof = percent_educational_attainment_population_25_years_and_over_graduate_or_professional_degree,
+    edu_hs_or_higher = percent_educational_attainment_percent_high_school_graduate_or_higher,
+    edu_bachelors_or_higher = percent_educational_attainment_percent_bachelors_degree_or_higher,
+    
+    # Female Marital Status
+    fms_never_married = percent_marital_status_females_15_years_and_over_never_married,
+    fms_married_separated = percent_marital_status_females_15_years_and_over_now_married_except_separated,
+    fms_separated = percent_marital_status_females_15_years_and_over_separated,
+    fms_widowed = percent_marital_status_females_15_years_and_over_widowed,
+    fms_divorced = percent_marital_status_females_15_years_and_over_divorced,
+    
+    # Foreign Born and Origin
+    foreign_born = percent_place_of_birth_total_population_foreign_born,
+    foreign_born_not_citizen = percent_u_s_citizenship_status_foreign_born_population_not_a_u_s_citizen,
+    foreign_born_europe = percent_world_region_of_birth_of_foreign_born_foreign_born_population_excluding_population_born_at_sea_europe,
+    foreign_born_asia = percent_world_region_of_birth_of_foreign_born_foreign_born_population_excluding_population_born_at_sea_asia,
+    foreign_born_africa = percent_world_region_of_birth_of_foreign_born_foreign_born_population_excluding_population_born_at_sea_africa,
+    foreign_born_oceania = percent_world_region_of_birth_of_foreign_born_foreign_born_population_excluding_population_born_at_sea_oceania,
+    foreign_born_latin_america = percent_world_region_of_birth_of_foreign_born_foreign_born_population_excluding_population_born_at_sea_latin_america,
+    foreign_born_north_america = percent_world_region_of_birth_of_foreign_born_foreign_born_population_excluding_population_born_at_sea_northern_america,
+    
+    # Linguistic Isolation
+    limited_english = percent_language_spoken_at_home_population_5_years_and_over_language_other_than_english_speak_english_less_than_very_well,
+    limited_english_spanish = percent_language_spoken_at_home_population_5_years_and_over_spanish_speak_english_less_than_very_well,
+    limited_english_indo_euro = percent_language_spoken_at_home_population_5_years_and_over_other_indo_european_languages_speak_english_less_than_very_well,
+    limited_english_aapi = percent_language_spoken_at_home_population_5_years_and_over_asian_and_pacific_islander_languages_speak_english_less_than_very_well,
+    limited_english_other = percent_language_spoken_at_home_population_5_years_and_over_other_languages_speak_english_less_than_very_well) |> 
+  arrange(geo_id) |> 
+  mutate(geo_id = str_remove(geo_id, "[01]400000US0")) |> 
+  filter(geo_id != "6")
+
+# Maternal Ages at Birth
+mat.age = read_csv("data/mother_clean.csv") |> 
+  arrange(geo_id) |> 
+  mutate(
+    geo_id = str_remove(geo_id, "1400000US0"),
+    birth_dif = total_birth - (birth_15_19 + birth_20_24 + birth_25_29 + birth_30_34 + birth_35_39 + birth_40_44 + birth_45_50),
+    total_birth = (birth_15_19 + birth_20_24 + birth_25_29 + birth_30_34 + birth_35_39 + birth_40_44 + birth_45_50),
+    birthing_rate = ifelse(total > 0, 100*total_birth / total, 0), # percent of people able to give birth who actually gave birth
+    avg_birthing_age = ifelse(total_birth > 0, (17*birth_15_19 + 22*birth_20_24 + 27*birth_25_29 + 32*birth_30_34 + 37*birth_35_39 + 42*birth_40_44 + 47.5*birth_45_50) / total_birth, NA_real_),
+    teen_birth = ifelse(total_birth>0, birth_15_19 / total_birth, NA_real_),
+    geriatric_birth = ifelse(total_birth>0, (birth_35_39 + birth_40_44 + birth_45_50) / total_birth, NA_real_)
+  ) |> 
+  rename(total_birth_pop = total, total_birth_count = total_birth) |> 
+  select(geo_id, total_birth_pop, total_birth_count, birthing_rate, avg_birthing_age, teen_birth, geriatric_birth)
+```
+
+## **Join All Data**
+
+```{r}
+dat.raw = cal.enviro |> 
+  full_join(mat.age, by = "geo_id") |> 
+  full_join(acs, by = "geo_id") |> 
+  filter(total_birth_pop > 0 & total_birth_count > 0)
+```
+
+## **Investigate Missingness**
+
+```{r}
+nrow(dat.raw)
+
+dat.raw |> 
+  filter(if_any(everything(), is.na)) |> 
+  nrow()
+```
+
+Missingness Bar Plot
+```{r}
+n.missing = dat.raw |> 
+  lapply(is.na) |> 
+  lapply(sum) |> 
+  as.data.frame() |> 
+  pivot_longer(everything(), names_to = "var", values_to = "n_missing") |> 
+  filter(n_missing > 0) |> 
+  mutate(
+    source = ifelse(var == "low_birth_weight", "CalEnviro4.0", "American Community Survey"),
+    label = case_match(
+      var,
+      "low_birth_weight" ~ "Low Birth Weight",
+      "unemployment_rate" ~ "Unemployment Rate",
+      "health_insurance_coverage" ~ "Health Insurance Coverage",
+      "disability" ~ "Disability",
+      "median_income" ~ "Median Income",
+      "poverty_rate_families" ~ "Poverty Rate (Families)",
+      "poverty_rate_all" ~ "Poverty Rate (All)",
+      "foreign_born_europe" ~ "Foreign Born (Europe)",
+      "foreign_born_asia" ~ "Foreign Born (Asia)",
+      "foreign_born_africa" ~ "Foreign Born (Africa)",
+      "foreign_born_oceania" ~ "Foreign Born (Oceania)",
+      "foreign_born_latin_america" ~ "Foreign Born (Latin America)",
+      "foreign_born_north_america" ~ "Foreign Born (North America)",
+      "foreign_born_not_citizen" ~ "Foreign Born (Not Citizen)")) |> 
+  arrange(-n_missing, label)
+
+n.missing$var = factor(n.missing$var, levels = n.missing$var)
+n.missing$label = factor(n.missing$label, levels = n.missing$label)
+
+n.missing |> 
+  mutate(var = fct_reorder(.f = label, .x = n_missing, .fun = min)) |> 
+  ggplot(aes(x = var, y = n_missing, fill = source)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  geom_text(aes(label = n_missing), hjust = -0.25, size = 3) +
+  scale_fill_brewer(palette = "Paired", direction = -1) +
+  labs(
+    x = "",
+    y = "Instances of Missingness",
+    fill = ""
+  ) +
+  theme(legend.position = "bottom")
+
+# display.brewer.all()
+# 
+# n.missing$var |> 
+#   paste0(collapse = "\n") |> 
+#   str_replace_all("_", " ") |> 
+#   str_to_title() |> 
+#   cat()
+
+```
+
+Patterns of Missingness Heat Map
+```{r}
+dat.missing.vars = dat.raw |> 
+  select(all_of(n.missing$var))
+
+par(mar = c(8, 4, 4, 2) + 0.1)
+aggr(dat.missing.vars, 
+  col=c('blue','red'), 
+  numbers=TRUE,
+  sortVars=TRUE, 
+  labels=names(dat.missing.vars),
+  cex.axis= 0.8,
+  cex.lab = 0.8,
+  gap=3, 
+  ylab=c("Bar Plot of missing data","Pattern")) |> 
+  suppressMessages()
+```
+
+
+
+
+
+
+
+
+
+
+## **Other Code**
+
+```{r}
+pattern.missing = dat.raw |> 
+  select(all_of(n.missing$var)) |> 
+  mutate(across(everything(), is.na)) |> 
+  count(across(everything())) |> 
+  arrange(-n) |> 
+  pivot_longer(-n, names_to = "var", values_to = "is_missing") |> 
+  mutate(pattern_id = row_number()) |> 
+  left_join(select(n.missing, var, label), by = "var")
+
+pattern.missing |> 
+  ggplot(aes(x = label, y = factor(pattern_id), fill = is_missing)) +
+  geom_tile()
+
+```
+
+
+
+
+
+
+
+

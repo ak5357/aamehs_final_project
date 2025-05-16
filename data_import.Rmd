@@ -55,6 +55,7 @@ acs = acs.raw |>
     "percent_employment_status_civilian_labor_force_unemployment_rate",
     "percent_health_insurance_coverage_civilian_noninstitutionalized_population_with_health_insurance_coverage",
     "percent_disability_status_of_the_civilian_noninstitutionalized_population_total_civilian_noninstitutionalized_population_with_a_disability",
+    "estimate_income_and_benefits_in_2015_inflation_adjusted_dollars_total_households_median_household_income_dollars",
     "percent_percentage_of_families_and_people_whose_income_in_the_past_12_months_is_below_the_poverty_level_all_families",
     "percent_percentage_of_families_and_people_whose_income_in_the_past_12_months_is_below_the_poverty_level_all_people",
     "percent_residence_1_year_ago_population_1_year_and_over_same_house",
@@ -78,6 +79,7 @@ acs = acs.raw |>
     disability = percent_disability_status_of_the_civilian_noninstitutionalized_population_total_civilian_noninstitutionalized_population_with_a_disability,
     
     # Poverty
+    median_income = estimate_income_and_benefits_in_2015_inflation_adjusted_dollars_total_households_median_household_income_dollars,
     poverty_rate_families = percent_percentage_of_families_and_people_whose_income_in_the_past_12_months_is_below_the_poverty_level_all_families,
     poverty_rate_all = percent_percentage_of_families_and_people_whose_income_in_the_past_12_months_is_below_the_poverty_level_all_people,
     residence_over_1y = percent_residence_1_year_ago_population_1_year_and_over_same_house, # low may indicate high residence turnover
@@ -125,11 +127,15 @@ mat.age = read_csv("data/mother_clean.csv") |>
   arrange(geo_id) |> 
   mutate(
     geo_id = str_remove(geo_id, "1400000US0"),
-    birthing_rate = ifelse(total > 0, total_birth / total, 0), # percent of people able to give birth who actually gave birth
-    avg_birthing_age = ifelse(total > 0, (17*birth_15_19 + 22*birth_20_24 + 27*birth_25_29 + 32*birth_30_34 + 42*birth_40_44 + 47.5*birth_45_50) / total_birth, NA_real_)
+    birth_dif = total_birth - (birth_15_19 + birth_20_24 + birth_25_29 + birth_30_34 + birth_35_39 + birth_40_44 + birth_45_50),
+    total_birth = (birth_15_19 + birth_20_24 + birth_25_29 + birth_30_34 + birth_35_39 + birth_40_44 + birth_45_50),
+    birthing_rate = ifelse(total > 0, 100*total_birth / total, 0), # percent of people able to give birth who actually gave birth
+    avg_birthing_age = ifelse(total_birth > 0, (17*birth_15_19 + 22*birth_20_24 + 27*birth_25_29 + 32*birth_30_34 + 37*birth_35_39 + 42*birth_40_44 + 47.5*birth_45_50) / total_birth, NA_real_),
+    teen_birth = ifelse(total_birth>0, birth_15_19 / total_birth, NA_real_),
+    geriatric_birth = ifelse(total_birth>0, (birth_35_39 + birth_40_44 + birth_45_50) / total_birth, NA_real_)
   ) |> 
   rename(total_birth_pop = total, total_birth_count = total_birth) |> 
-  select(geo_id, total_birth_pop, total_birth_count, birthing_rate, avg_birthing_age)
+  select(geo_id, total_birth_pop, total_birth_count, birthing_rate, avg_birthing_age, teen_birth, geriatric_birth)
 ```
 
 ## **Join All Data**
@@ -187,6 +193,20 @@ library(maps)
 states.map = map_data("state")
 ca.map = states.map |> filter(region == "california")
 
+# Map by Outcome Missingness
+dat.test1 = dat.raw |> 
+  mutate(
+    birth_data = factor(case_when(
+      total_birth_pop == 0 ~ "Birth Pop = 0, Birth Count = 0",
+      total_birth_count == 0 ~ "Birth Pop > 0, Birth Count = 0",
+      total_birth_pop > 0 & total_birth_count > 0 ~ "Birth Pop > 0, Birth Count > 0"
+    )),
+    missing = factor(case_when(
+      is.na(city) ~ "Missing all CalEnviro\n& ACS data",
+      is.na(low_birth_weight) ~ "LBW",
+      TRUE ~ "None"), levels = c("LBW", "None", "Missing all CalEnviro\n& ACS data")))
+
+
 # Map by exposure / outcome missingness
 dat.test |> 
   filter(missing != "Missing all CalEnviro\n& ACS data") |> 
@@ -228,7 +248,7 @@ dat.test |>
   facet_wrap(~ birth_data, scale = "free_y") +
   geom_text(aes(label = n), size = 3, vjust = -0.5) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
-  
+
 # Proposal for exclusion criteria
 dat.test |> 
   ggplot(aes(x = longitude, y = latitude, color = exclude)) +
@@ -248,16 +268,37 @@ dat.test |>
 
 ```{r}
 dat = dat.raw |> 
-  filter(!is.na(drinking_water) & !is.na(low_birth_weight) & total_birth_pop > 0 & total_birth_count > 0)
+  filter(!is.na(low_birth_weight) & total_birth_pop & total_birth_count > 0) |> 
+  drop_na()
+
+dat.raw |> nrow()
+dat |> nrow()
+
+nrow(dat)
+
+dat |> 
+  filter(is.na(median_income))
+
+problem_tracts = dat$geo_id[is.na(dat$median_income)]
+
+dat.raw[dat.raw$geo_id %in% c("6037700700", "6065044521", "6075980600", "6081611500"),]
+
+lm(foreign_born ~ limited_english, data = dat)
+corr.test(dat$foreign_born, dat$limited_english)
+
 
 # Check for Null Values across columns
 dat |>
-  filter(!is.na(drinking_water) & !is.na(low_birth_weight) & total_birth_pop > 0 & total_birth_count > 0) |>
+  # filter(!is.na(drinking_water) & !is.na(low_birth_weight) & total_birth_pop > 0 & total_birth_count > 0) |>
   lapply(is.na) |>
   lapply(sum) |>
   as_tibble() |>
   pivot_longer(everything(), names_to = "col", values_to = "na_count") |>
   filter(na_count > 0)
+
+dat |> 
+  filter(california_county == "Los Angeles") |> 
+  nrow()
 
 dat |> glimpse()
 ```

@@ -1,0 +1,166 @@
+---
+title: "Statistical Analysis"
+author: "Arghya Kannadaguli (ak5357)"
+date: "2025-04-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(caret)
+library(psych)
+library(GGally)
+```
+
+## **Data Import**
+
+```{r}
+mat_age = read_csv("data/mother_ages.csv") |> 
+  filter(name != "California") |> 
+  mutate(
+    geoid = as.numeric(str_remove(geoid, "14000US0")),
+    avg_maternal_age = case_when(
+      total_birth > 0 ~ (17*birth_15_19 + 22*birth_20_24 + 27*birth_25_29 + 32*birth_30_34
+                         + 37*birth_35_39 + 42*birth_40_44 + 47*birth_45_50)/total_birth,
+      TRUE ~ NA
+    )
+    ) |>
+  rename(census_tract = geoid) |> 
+  select(census_tract, avg_maternal_age)
+
+enviro = read_csv("data/joined_enviro_ses_20250301.csv") |> 
+  select(-contains(c("pctl", ".y"))) |> 
+  rename(total_pop = total_population.x, county = california_county.x) |> 
+  inner_join(mat_age, by = "census_tract") |> 
+  drop_na()
+
+rm(mat_age)
+#write_csv(enviro, "data/joined_data_20250417.csv")
+```
+
+## **Visualization**
+
+```{r}
+hist(enviro$avg_maternal_age,
+     main = "Histogram of Average Maternal Age by Census Tract",
+     xlab = "Average Maternal Age")
+
+#mat_age_plot = 
+  enviro |> 
+  ggplot(aes(x = avg_maternal_age)) + 
+  geom_histogram(col = "black", fill = "pink") +
+  labs(
+    title = "Average Maternal Age",
+    subtitle = "Source: Census Reporter, 2023", # FIX THIS
+    x = "Estimated Average Maternal Age",
+    y = "Count"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+
+#ggsave("images/hist_maternal_age.png", mat_age_plot)
+```
+
+```{r}
+enviro |> 
+  select(drinking_water, diesel_pm, pesticides, poverty, lead, pm2_5, avg_maternal_age) |>
+  ggcorr(label = TRUE, label_size = 3)
+
+enviro.sub |> 
+  ggcorr(label = TRUE, label_size = 3)
+```
+
+## **OLS Linear Regression**
+```{r}
+ols.fit = lm(low_birth_weight ~ drinking_water + diesel_pm + pesticides + lead + pm2_5, data = enviro)
+summary(ols.fit)
+
+ols.fit2 = lm(low_birth_weight ~ drinking_water, data = enviro)
+summary(ols.fit2)
+
+ols.fit3 = lm(drinking_water ~ diesel_pm + pesticides + lead + pm2_5, data = enviro)
+summary(ols.fit3)
+
+```
+
+
+## **Factor Analysis**
+```{r}
+enviro |> colnames()
+
+# Subset with only covariates (exclude drinking_water)
+enviro.fa = enviro |> 
+  select(
+    # Pollutants
+    ozone, pm2_5, diesel_pm, lead, pesticides, 
+    # Pollution Sources
+    tox_release, traffic, cleanup_sites, groundwater_threats, 
+    # SES
+    education, linguistic_isolation, poverty, unemployment, housing_burden, disadv_designation, 
+    # Race
+    hispanic_percent, white_percent, african_american_percent, native_american_percent, asian_american_percent, other_multiple_percent,
+    # Maternal Characteristics
+    avg_maternal_age)
+
+fct = tibble(
+  n_fact = 2:15,
+  BIC = NA_real_
+)
+
+for (i in 2:15){
+  set.seed(2025)
+  fa = fa(enviro.sub, nfactors = i, rotate = "varimax", scores = "regression", fm = "ml")
+  fct$BIC[fct$n_fact == i] = fa$BIC
+}
+rm(fa)
+
+fct$label = NA
+fct$label[fct$BIC == min(fct$BIC)] = "Minimum BIC"
+
+fct |> 
+  ggplot(aes(x = n_fact, y = BIC, color = label)) +
+  geom_line(lwd = 0.2) +
+  geom_point() +
+  geom_text(aes(label = n_fact), vjust = -0.8, size = 2) + 
+  labs(
+    title = "BIC by Number of Factors",
+    x = "Number of Factors in Factor Analysis",
+    y = "Bayesian Information Criterion (BIC)",
+    color = "",
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.title = element_text(size = 10),
+    legend.position = "none")
+
+```
+
+
+
+
+```{r}
+fa.5 = fa(enviro.sub, nfactors = 5, rotate = "varimax", scores = "regression", fm = "ml")
+fa.6 = fa(enviro.sub, nfactors = 6, rotate = "varimax", scores = "regression", fm = "ml")
+fa.7 = fa(enviro.sub, nfactors = 7, rotate = "varimax", scores = "regression", fm = "ml")
+
+ggcorr(fa.5$scores)
+
+fa.5$loadings[]
+fa.5$scores
+
+loadings = data.frame(fa.5$loadings[])
+
+```
+
+
+
+
+
+
+
